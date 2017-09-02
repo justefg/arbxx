@@ -1,6 +1,10 @@
 import ccxt
 import time
 import pymarketcap
+
+from retry.api import retry_call
+from collections import defaultdict, namedtuple
+
 from tools import send_notifier
 from tools import get_conversion
 
@@ -14,7 +18,6 @@ VOLUME_COIN_THRESHOLD = {}
 VOLUME_THRESHOLD_USD = 200
 
 IGNORED = ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES']
-
 
 
 def get_need_volumes():
@@ -99,10 +102,11 @@ def get_base_and_coin(currency_pair):
         return cur2, cur1
     return None, None
 
+
 def get_usd_price(base, coin):
     return CONVERSION[base + '_' + 'USD']
 
-from collections import defaultdict, namedtuple
+
 class Deal(namedtuple('Deal', ['price', 'quantity', 'side'])):
     def __repr__(self):
         return '\n(p={},q={},{})'.format(*self)
@@ -111,9 +115,6 @@ class Deal(namedtuple('Deal', ['price', 'quantity', 'side'])):
 class MarketInfo(namedtuple('MarketInfo', ['exchange', 'volume', 'market', 'price', 'deals'])):
     def __repr__(self):
         return '-----------\n e={},v={},mkt={},p={} \n d={} \n------------\n'.format(*self)
-
-
-from retry.api import retry_call
 
 
 def fetch_order_book(func, market):
@@ -128,6 +129,7 @@ def fetch_order_book(func, market):
             else:
                 break
     raise RuntimeError
+
 
 def process_market(exch, market, need_volume):
     base, coin = get_base_and_coin(market)
@@ -164,9 +166,20 @@ from pymarketcap.up import get_currencies
 from pymarketcap import Pymarketcap
 
 
-def process_coin(coin_markets):
+def process_coins(worker_id, coins_markets):
+    global CONVERSION
+    # global VOLUME_COIN_THRESHOLD
+    while True:
+        log.warning('Worker #%s processing coins' % worker_id)
+        CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
+        get_need_volumes()
+        for coin, markets in coins_markets:
+            process_coin(coin, markets)
+
+
+def process_coin(coin, markets):
     # print(coin_markets)
-    coin, markets = coin_markets
+    # coin, markets = coin_markets
     if coin in IGNORED:
         return
     print('Processing coin %s' % coin)
@@ -188,19 +201,29 @@ def process_coin(coin_markets):
 
     if not buys or not sells:
         return
+
     best_bid = buys[0].price
     best_ask = sells[0].price
-    print(buys, sells)
-    if best_bid * (1 + RETURN) < best_ask:
-        roi = best_ask / best_bid - 1
-        #print(roi, coin, buys[0], buys[1], sells[0])
-        exch_fr, exch_to = buys[0].exchange, sells[0].exchange
-        log.warning('coin=%s ROI=%.3f from=%s to=%s ' % (coin, roi, exch_fr, exch_to))
-        log.warning('%s %s', str(buys), str(sells))
-        #msg = 'ROI=%.3f' % roi  str(buys[0]) + '\n' + str(sells[0])
-        #send_notifier(msg)
+    if coin == 'MYB':
+        log.warning('MYB %s %s' % (best_bid, best_ask))
+    # print(buys, sells)
+    for bid in buys:
+        for ask in sells:
+            bid_price = bid.price
+            ask_price = ask.price
+            if bid_price * (1 + RETURN) < ask_price:
+                roi = best_ask / best_bid - 1
+                #print(roi, coin, buys[0], buys[1], sells[0])
+                exch_fr, exch_to = bid.exchange, ask.exchange
+                mkt_fr, mkt_to = bid.market, ask.market
+                log.warning('coin=%s ROI=%.1f from=%s to=%s mkt_from=%s mkt_to=%s' % (coin, roi * 100,
+                                                                                      exch_fr, exch_to,
+                                                                                      mkt_fr, mkt_to))
+                log.warning('%s %s' % (bid.deals, ask.deals))
 
-from multiprocessing import Pool
+
+from multiprocessing import Process
+
 
 def get_markets(coin, volume_threshold):
     cm = Pymarketcap()
@@ -234,8 +257,8 @@ def main():
         all_markets = json.loads(data)
         print(all_markets.items())
         # all_markets = json.loads(fd.read())
-    print('Calculating conversion')
-    CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
+    # print('Calculating conversion')
+    # CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
 
     print('Calculating volumes..')
     get_need_volumes()
@@ -258,15 +281,32 @@ def main():
 
     # process_coin(list(all_markets.items())[0])
     # process_coin(('ADX', all_markets['ADX']))
-    p = Pool(WORKERS_COUNT)
-    while 1:
-        p.map(process_coin, all_markets.items())
-        print('Sleeping for 10 sec')
-        time.sleep(10)
-        print('Calculating conversion')
-        CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
-        print('Getting clients..')
-        CLIENTS = get_clients()
+    processes = []
+    all_items = list(all_markets.items())
+    items_size = len(all_items) // WORKERS_COUNT
+    iterator = 0
+    print('Starting workers')
+    for worker_id in range(WORKERS_COUNT):
+        if worker_id == WORKERS_COUNT - 1:
+            chunk = all_items[iterator:]
+        else:
+            chunk = all_items[iterator:iterator + items_size]
+        iterator += items_size
+        proc = Process(target=process_coins, args=(worker_id, chunk))
+        proc.start()
+        processes.append(proc)
+    print('Started workers')
+    for proc in processes:
+        proc.join()
+
+    # while 1:
+    #     p.map(process_coin, all_markets.items())
+    #     print('Sleeping for 10 sec')
+    #     time.sleep(10)
+    #     print('Calculating conversion')
+    #     CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
+    #     print('Getting clients..')
+    #     CLIENTS = get_clients()
 
 
 if __name__ == "__main__":

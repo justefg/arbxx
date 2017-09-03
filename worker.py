@@ -56,16 +56,11 @@ def fetch_order_book(func, market):
 
 
 def process_coins(worker_id, coins_markets, config):
-    print('1')
     while True:
         log.warning('Worker #%s processing coins' % worker_id)
-        print('2')
         conversion = get_conversion(config['base_currencies'], config['fiat'])
-        print('3')
         need_volumes = get_need_volumes(config['volume_threshold_usd'])
-        print('4')
         clients = get_clients(config['exchanges'])
-        print('5')
         for coin, markets in coins_markets:
             process_coin(coin, markets, clients,
                          conversion, need_volumes, config)

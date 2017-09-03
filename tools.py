@@ -26,9 +26,7 @@ def get_conversion(BASE_CURRENCIES, FIAT):
     for base in BASE_CURRENCIES:
         if base in FIAT:
             continue
-        print(0)
         ticker = retry_call(coinmarketcap.ticker, fargs=[base], tries=10, delay=0.5)
-        print(1)
         price_usd = ticker['price_usd']
         conversion[base + '_' + 'USD'] = float(price_usd)
 

@@ -3,8 +3,9 @@ from worker import process_coins
 from multiprocessing import Process
 
 
-log = get_logger('runner_v2.log')
-
+#log = get_logger('runner_v2.log')
+import logging
+log = logging.getLogger()
 
 def main():
     # data = Pymarketcap()._up()
@@ -20,7 +21,7 @@ def main():
         'ignored': ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES'],
 
         'return': 0.05,
-        'workers_count': 1,
+        'workers_count': 10,
 
         'token': '402107309:AAE-V2bd9KY2kyVvbY-o6F453PnxGB5mfwY',
         'chat_id': 111827564

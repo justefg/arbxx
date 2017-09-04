@@ -52,7 +52,9 @@ def get_clients(exchanges):
     clients = {}
     for exch in exchanges:
         try:
-            exchange = getattr(ccxt, exch)()
+            attr = getattr(ccxt, exch)
+            exchange = retry_call(attr, tries=10, delay=0.2)
+            # exchange = getattr(ccxt, exch)()
         except:
             print('Failed to get client %s' % exch)
             continue

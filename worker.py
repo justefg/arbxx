@@ -1,9 +1,11 @@
 import logging
 import time
+from datetime import datetime
 from tools import get_clients, get_conversion, get_need_volumes
-from structs import MarketInfo, Deal
+from structs import MarketInfo, Deal, ArbOpp
 
 from tools import get_logger
+from collections import defaultdict
 
 log = get_logger('runner_v2.log')
 
@@ -56,23 +58,78 @@ def fetch_order_book(func, market):
 
 
 def process_coins(worker_id, coins_markets, config):
-    while True:
-        log.warning('Worker #%s processing coins' % worker_id)
-        conversion = get_conversion(config['base_currencies'], config['fiat'])
-        need_volumes = get_need_volumes(config['volume_threshold_usd'])
-        clients = get_clients(config['exchanges'])
-        for coin, markets in coins_markets:
-            process_coin(coin, markets, clients,
-                         conversion, need_volumes, config)
+    open_arbs_all_coins = defaultdict(lambda: [])
+    try:
+        while True:
+            log.warning('Worker #%s processing coins' % worker_id)
+            conversion = get_conversion(config['base_currencies'], config['fiat'])
+            need_volumes = get_need_volumes(config['volume_threshold_usd'])
+            clients = get_clients(config['exchanges'])
+            for coin, markets in coins_markets:
+                last_open_arbs = open_arbs_all_coins[coin]
+                now_open_arbs = process_coin(coin, markets, clients,
+                                             conversion, need_volumes, config)
+                # add new arbs & update existing ones
+                for arb in last_open_arbs:
+                    if arb not in now_open_arbs:
+                        # arb opportunity has closed
+                        # whY ?
+                        client_from = clients[arb.e_from]
+                        client_to = clients[arb.e_to]
+                        mkt_from = arb.mkt_from
+                        mkt_to = arb.mkt_to
+
+                        try:
+                            order_book_from = fetch_order_book(client_from.fetch_order_book, mkt_from)
+                        except Exception as e:
+                            print('Failed to fetch order_book %s %s' % (arb.e_from, mkt_from))
+                            continue
+
+                        try:
+                            order_book_to = fetch_order_book(client_to.fetch_order_book, mkt_to)
+                        except Exception as e:
+                            print('Failed to fetch order_book %s %s' % (arb.e_to, mkt_to))
+                            continue
+                        base, coin = get_base_and_coin(mkt_from, config['base_currencies'])
+                        now_price_to_buy, _ = get_sum_on_volume(order_book_from['asks'], need_volumes[coin], 'BUY')
+                        now_price_to_buy *= conversion[base + '_USD']
+                        base, coin = get_base_and_coin(mkt_to, config['base_currencies'])
+                        now_price_to_sell, _ = get_sum_on_volume(order_book_to['bids'], need_volumes[coin], 'SELL')
+                        now_price_to_sell *= conversion[base + '_USD']
+                        last_to_buy = arb.price_buy
+                        last_price_to_sell = arb.price_sell
+                        if last_price_to_sell / now_price_to_sell - 1 > config['eps']:
+                            why_closed = 'SELL'
+                        else:
+                            why_closed = 'BUY'
+
+                        arb.why_closed = why_closed
+                        arb.end_date = datetime.now()
+
+                        print('Arb opp closed: coin=%s %s' % (coin, arb))
+                        log.warning('Arb opp closed: coin=%s %s' % (coin, arb))
+                        #log.warning('data=%s %s' % (order_book_from['asks'], order_book_to['bids']))
+                        log.warning('coin=%s volumes=%s p1=%s p2=%s p3=%s p4=%s' % (coin,
+                                                                                    need_volumes[coin],
+                                                                                    last_to_buy, last_price_to_sell,
+                                                                                    now_price_to_buy, now_price_to_sell))
+                    else:
+                        idx = now_open_arbs.index(arb)
+                        # initial values
+                        now_open_arbs[idx].start_date = arb.start_date
+                        now_open_arbs[idx].price_buy = arb.price_buy
+                        now_open_arbs[idx].price_sell = arb.price_sell
+                open_arbs_all_coins[coin] = now_open_arbs
+    except:
+        log.exception('Worker #%s fucked up' % worker_id)
 
 
 def process_coin(coin, markets,
                  clients, conversion, need_volumes,
                  config):
-    print(coin, markets)
     # coin, markets = coin_markets
     if coin in config['ignored']:
-        return
+        return []
     print('Processing coin %s' % coin)
     buys = []
     sells = []
@@ -83,38 +140,46 @@ def process_coin(coin, markets,
         if exchange not in clients.keys():
             continue
         print('Processing %s' % market)
-        buy_pr, sell_pr = process_market(clients[exchange], exchange, pair, need_volumes[coin],
+        buy_pr, sell_pr = process_market(clients[exchange], exchange, pair,
+                                         need_volumes[coin],
                                          conversion, config['base_currencies'])
 
         buys += buy_pr
         sells += sell_pr
     buys.sort(key=lambda v: v.price)
     sells.sort(key=lambda v: v.price, reverse=True)
-
     if not buys or not sells:
-        return False
+        return []
 
     # best_bid = buys[0].price
     # best_ask = sells[0].price
     # if coin == 'MYB':
     #     log.warning('MYB %s %s' % (best_bid, best_ask))
     # print(buys, sells)
-    arb_found = False
+    arbs = []
     for bid in buys:
         for ask in sells:
             bid_price = bid.price
             ask_price = ask.price
             if bid_price * (1 + config['return']) < ask_price:
-                roi = ask_price / bid_price - 1
-                #print(roi, coin, buys[0], buys[1], sells[0])
-                exch_fr, exch_to = bid.exchange, ask.exchange
-                mkt_fr, mkt_to = bid.market, ask.market
-                log.warning('coin=%s ROI=%.1f from=%s to=%s mkt_from=%s mkt_to=%s' % (coin, roi * 100,
-                                                                                      exch_fr, exch_to,
-                                                                                      mkt_fr, mkt_to))
+                current_date = datetime.now()
+                arb_data = {
+                    'e_from': bid.exchange,
+                    'e_to': ask.exchange,
+                    'mkt_from': bid.market,
+                    'mkt_to': ask.market,
+                    'start_date': current_date,
+                    'end_date': current_date,
+                    'price_buy': bid_price,
+                    'price_sell': ask_price
+                }
+                arb = ArbOpp(**arb_data)
+                arbs.append(arb)
+                log.warning('coin=%s %s' % (coin, arb))
                 log.warning('%s %s' % (bid.deals, ask.deals))
-                arb_found = True
-    return arb_found
+
+    return arbs
+
 
 def process_market(client, exch, market, need_volume,
                    conversion, base_currencies):

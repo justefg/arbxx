@@ -7,51 +7,7 @@ from multiprocessing import Process
 import logging
 log = logging.getLogger()
 
-def main():
-    # data = Pymarketcap()._up()
-    # all_markets = {coin_data['symbol']: get_markets(coin_data['symbol'], 2000)
-    #                for coin_data in data}
-
-    config = {
-        'exchanges': ['bittrex', 'hitbtc', 'cryptopia', 'yobit', 'liqui',
-                      'bit2c', 'huobi', 'btcchina'],
-        'base_currencies': ['USD', 'USDT', 'CNY',  'BTC', 'ETH'],
-        'fiat': ['USD', 'CNY'],
-        'volume_threshold_usd': 200,
-        'ignored': ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES'],
-
-        'return': 0.05,
-        'workers_count': 10,
-
-        'token': '402107309:AAE-V2bd9KY2kyVvbY-o6F453PnxGB5mfwY',
-        'chat_id': 111827564
-    }
-
-
-    import json
-
-    with open('all_markets.json', 'r') as fd:
-        data = fd.read()
-        all_markets = json.loads(data)
-        # print(all_markets.items())
-        # all_markets = json.loads(fd.read())
-    # print('Calculating conversion')
-    # CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
-
-    # for coin_data in data:
-    #     value = coin_data['24h_volume_usd']
-
-    #     if volume > 3000:
-    #         all_coins.append(coin_data['symbol'])
-    # for coin in all_coins:
-    #     markets = Pymarketcap().markets(coin)
-    #     print(markets)
-
-    # return
-    # all_coins = [coin_data['symbol'] for coin_data in data if
-
-    # process_coin(list(all_markets.items())[0])
-    # process_coin(('ADX', all_markets['ADX']))
+def start_workers(all_markets, config):
     workers_count = config['workers_count']
     processes = []
     all_items = list(all_markets.items())
@@ -71,6 +27,58 @@ def main():
     print('Started workers')
     for proc in processes:
         proc.join()
+
+def main():
+    # data = Pymarketcap()._up()
+    # all_markets = {coin_data['symbol']: get_markets(coin_data['symbol'], 2000)
+    #                for coin_data in data}
+
+    config = {
+        'exchanges': ['bittrex', 'hitbtc', 'cryptopia', 'yobit', 'liqui',
+                      'bit2c', 'huobi', 'btcchina'],
+        'base_currencies': ['USD', 'USDT', 'CNY',  'BTC', 'ETH'],
+        'fiat': ['USD', 'CNY'],
+        'volume_threshold_usd': 200,
+        'ignored': ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES'],
+
+        'return': 0.05,
+        'workers_count': 10,
+        'eps': 0.03,
+
+        'token': '402107309:AAE-V2bd9KY2kyVvbY-o6F453PnxGB5mfwY',
+        'chat_id': 111827564
+    }
+
+
+    import json
+
+    with open('all_markets.json', 'r') as fd:
+        data = fd.read()
+        all_markets = json.loads(data)
+    # process_coins(10500, [('PLR', all_markets['PLR']), ('MSP', all_markets['MSP'])], config)
+    start_workers(all_markets, config)
+        # print(all_markets.items())
+        # all_markets = json.loads(fd.read())
+    # print('Calculating conversion')
+    # CONVERSION = get_conversion(BASE_CURRENCIES, FIAT)
+
+    # for coin_data in data:
+    #     value = coin_data['24h_volume_usd']
+
+    #     if volume > 3000:
+    #         all_coins.append(coin_data['symbol'])
+    # for coin in all_coins:
+    #     markets = Pymarketcap().markets(coin)
+    #     print(markets)
+
+    # return
+    # all_coins = [coin_data['symbol'] for coin_data in data if
+
+    # process_coin(list(all_markets.items())[0])
+    # process_coin(('ADX', all_markets['ADX']))
+
+
+
 
     # while 1:
     #     p.map(process_coin, all_markets.items())

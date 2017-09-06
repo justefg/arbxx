@@ -7,6 +7,7 @@ from multiprocessing import Process
 import logging
 log = logging.getLogger()
 
+
 def start_workers(all_markets, config):
     workers_count = config['workers_count']
     processes = []
@@ -27,6 +28,7 @@ def start_workers(all_markets, config):
     print('Started workers')
     for proc in processes:
         proc.join()
+
 
 def main():
     # data = Pymarketcap()._up()
@@ -56,6 +58,8 @@ def main():
         data = fd.read()
         all_markets = json.loads(data)
     # process_coins(10500, [('PLR', all_markets['PLR']), ('MSP', all_markets['MSP'])], config)
+
+    # process_coins(10500, [('BCH', [{'exchange': 'yobit', 'pair': 'BCC/BTC'}])], config)
     start_workers(all_markets, config)
         # print(all_markets.items())
         # all_markets = json.loads(fd.read())

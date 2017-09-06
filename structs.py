@@ -6,15 +6,17 @@ class Deal(namedtuple('Deal', ['price', 'quantity', 'side'])):
         return '\n(p={},q={},{})'.format(*self)
 
 
-class MarketInfo(namedtuple('MarketInfo', ['exchange', 'volume', 'market', 'price', 'deals'])):
+class MarketInfo(namedtuple('MarketInfo', ['exchange', 'volume', 'market',
+                                           'data'])):
     def __repr__(self):
-        return '-----------\n e={},v={},mkt={},p={} \n d={} \n------------\n'.format(*self)
+        return '-----------\n e={},v={},mkt={},\n d={} \n------------\n'.format(*self)
 
 class ArbOpp:
     def __init__(self,
                  e_from=None, e_to=None, mkt_from=None, mkt_to=None,
                  start_date=None, end_date=None,
                  price_buy=None, price_sell=None,
+                 arb_strength=None,
                  why_closed='OPEN'):
         self.e_from = e_from
         self.e_to = e_to
@@ -24,6 +26,7 @@ class ArbOpp:
         self.end_date = end_date
         self.price_buy = price_buy
         self.price_sell = price_sell
+        self.arb_strength = arb_strength
         self.why_closed = why_closed
 
     def get_key(self):
@@ -34,8 +37,9 @@ class ArbOpp:
         return dt.total_seconds() // 60
 
     def __repr__(self):
-        return ("roi=%.1f mkt_from=%s mkt_to=%s e_from=%s e_to=%s "
-                "price_buy=%s price_sell=%s start_date=%s end_date=%s "
+        return ("roi=%.0f%% mkt_from=%s mkt_to=%s e_from=%s e_to=%s "
+                "price_buy=%.0f$ price_sell=%.0f$ start_date=%s end_date=%s "
+                "arb_strength=%.2f "
                 "duration=%s why_closed=%s" % ((self.price_sell / self.price_buy - 1) * 100,
                                                 self.mkt_from,
                                                 self.mkt_to,
@@ -45,6 +49,7 @@ class ArbOpp:
                                                 self.price_sell,
                                                 self.start_date,
                                                 self.end_date,
+                                                self.arb_strength,
                                                 self.get_duration_minutes(),
                                                 self.why_closed))
 

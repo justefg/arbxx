@@ -65,11 +65,13 @@ def process_coins(worker_id, coins_markets, config):
             conversion = get_conversion(config['base_currencies'], config['fiat'])
             need_volumes = get_need_volumes(config['volume_threshold_usd'])
             clients = get_clients(config['exchanges'])
+
             for coin, markets in coins_markets:
                 last_open_arbs = open_arbs_all_coins[coin]
                 now_open_arbs = process_coin(coin, markets, clients,
                                              conversion, need_volumes, config)
                 # add new arbs & update existing ones
+                need_volume = need_volumes[coin]
                 for arb in last_open_arbs:
                     if arb not in now_open_arbs:
                         # arb opportunity has closed
@@ -91,10 +93,10 @@ def process_coins(worker_id, coins_markets, config):
                             print('Failed to fetch order_book %s %s' % (arb.e_to, mkt_to))
                             continue
                         base, coin = get_base_and_coin(mkt_from, config['base_currencies'])
-                        now_price_to_buy, _ = get_sum_on_volume(order_book_from['asks'], need_volumes[coin], 'BUY')
+                        now_price_to_buy, _ = get_sum_on_volume(order_book_from['asks'], need_volume, 'BUY')
                         now_price_to_buy *= conversion[base + '_USD']
                         base, coin = get_base_and_coin(mkt_to, config['base_currencies'])
-                        now_price_to_sell, _ = get_sum_on_volume(order_book_to['bids'], need_volumes[coin], 'SELL')
+                        now_price_to_sell, _ = get_sum_on_volume(order_book_to['bids'], need_volume, 'SELL')
                         now_price_to_sell *= conversion[base + '_USD']
                         last_to_buy = arb.price_buy
                         last_price_to_sell = arb.price_sell
@@ -106,13 +108,13 @@ def process_coins(worker_id, coins_markets, config):
                         arb.why_closed = why_closed
                         arb.end_date = datetime.now()
 
-                        print('Arb opp closed: coin=%s %s' % (coin, arb))
-                        log.warning('Arb opp closed: coin=%s %s' % (coin, arb))
+                        print('Closed arb opp : coin=%s %s' % (coin, arb))
+                        log.warning('Closed arb opp: coin=%s %s' % (coin, arb))
                         #log.warning('data=%s %s' % (order_book_from['asks'], order_book_to['bids']))
-                        log.warning('coin=%s volumes=%s p1=%s p2=%s p3=%s p4=%s' % (coin,
-                                                                                    need_volumes[coin],
-                                                                                    last_to_buy, last_price_to_sell,
-                                                                                    now_price_to_buy, now_price_to_sell))
+                        # log.warning('coin=%s volumes=%s p1=%s p2=%s p3=%s p4=%s' % (coin,
+                        #                                                             need_volumes[coin],
+                        #                                                             last_to_buy, last_price_to_sell,
+                        #                                                             now_price_to_buy, now_price_to_sell))
                     else:
                         idx = now_open_arbs.index(arb)
                         # initial values
@@ -120,8 +122,43 @@ def process_coins(worker_id, coins_markets, config):
                         now_open_arbs[idx].price_buy = arb.price_buy
                         now_open_arbs[idx].price_sell = arb.price_sell
                 open_arbs_all_coins[coin] = now_open_arbs
+                for arb in now_open_arbs:
+                    log.warning('Open arb opp: coin=%s %s' % (coin, arb))
+
     except:
         log.exception('Worker #%s fucked up' % worker_id)
+        process_coins(worker_id, coins_markets, config)
+
+
+def get_arb_amount(data1, data2):
+    i = 0
+    j = 0
+    amount = 0
+    buy_left = 0
+    sell_left = 0
+    while i < len(data1) and j < len(data2):
+        buy_price, amo_buy = data1[i]
+        if buy_left:
+            amo_buy = buy_left
+        sell_price, amo_sell = data2[j]
+        if sell_left:
+            amo_sell = sell_left
+        if buy_price < sell_price:
+            if amo_buy > amo_sell:
+                buy_left = amo_buy - amo_sell
+                amount += amo_sell
+                sell_left = 0
+
+                j += 1
+            else:
+                sell_left = amo_sell - amo_buy
+                amount += amo_buy
+                buy_left = 0
+
+                i += 1
+        else:
+            break
+    return amount
 
 
 def process_coin(coin, markets,
@@ -146,10 +183,6 @@ def process_coin(coin, markets,
 
         buys += buy_pr
         sells += sell_pr
-    buys.sort(key=lambda v: v.price)
-    sells.sort(key=lambda v: v.price, reverse=True)
-    if not buys or not sells:
-        return []
 
     # best_bid = buys[0].price
     # best_ask = sells[0].price
@@ -157,26 +190,36 @@ def process_coin(coin, markets,
     #     log.warning('MYB %s %s' % (best_bid, best_ask))
     # print(buys, sells)
     arbs = []
+    need_volume = need_volumes[coin]
     for bid in buys:
-        for ask in sells:
-            bid_price = bid.price
-            ask_price = ask.price
-            if bid_price * (1 + config['return']) < ask_price:
+        for sell in sells:
+            arb_amount = get_arb_amount(sell.data, bid.data)
+            buy_price, _ = get_sum_on_volume(sell.data, need_volume, 'BUY')
+            base, coin = get_base_and_coin(sell.market, config['base_currencies'])
+            buy_price *= conversion[base + '_USD']
+            sell_price, _ = get_sum_on_volume(bid.data, need_volume, 'SELL')
+            base, coin = get_base_and_coin(bid.market, config['base_currencies'])
+            sell_price *= conversion[base + '_USD']
+
+            if buy_price * (1 + config['return']) < sell_price:
                 current_date = datetime.now()
                 arb_data = {
-                    'e_from': bid.exchange,
-                    'e_to': ask.exchange,
-                    'mkt_from': bid.market,
-                    'mkt_to': ask.market,
+                    'e_from': sell.exchange,
+                    'e_to': bid.exchange,
+                    'mkt_from': sell.market,
+                    'mkt_to': bid.market,
                     'start_date': current_date,
                     'end_date': current_date,
-                    'price_buy': bid_price,
-                    'price_sell': ask_price
+                    'price_buy': buy_price,
+                    'price_sell': sell_price,
+                    'arb_strength': arb_amount * 1.0 / need_volume
                 }
                 arb = ArbOpp(**arb_data)
+                # log.warning(arb)
+                # log.warning('buy_price=%s KEKB %s sell_price=%s KEKS %s ' % (buy_price, bid.data, sell_price, sell.data))
+
                 arbs.append(arb)
-                log.warning('coin=%s %s' % (coin, arb))
-                log.warning('%s %s' % (bid.deals, ask.deals))
+                # log.warning('%s %s' % (bid.deals, ask.deals))
 
     return arbs
 
@@ -195,17 +238,15 @@ def process_market(client, exch, market, need_volume,
         print('Failed to fetch order_book %s %s' % (exch, market))
         return [], []
     bids, asks = order_book['bids'], order_book['asks']
-    buy_spend, deals_buy = get_sum_on_volume(asks, need_volume, 'BUY')
-    sell_spend, deals_sell = get_sum_on_volume(bids, need_volume, 'SELL')
-    buy_sum_usd = buy_spend * conversion[base + '_' + 'USD']
-    sell_sum_usd = sell_spend * conversion[base + '_' + 'USD']
+    # buy_spend, deals_buy = get_sum_on_volume(asks, need_volume, 'BUY')
+    # sell_spend, deals_sell = get_sum_on_volume(bids, need_volume, 'SELL')
+    # buy_sum_usd = buy_spend * conversion[base + '_' + 'USD']
+    # sell_sum_usd = sell_spend * conversion[base + '_' + 'USD']
 
-    if buy_sum_usd:
-        buy_prices.append(MarketInfo(exchange=exch, market=market,
-                                     price=buy_sum_usd,
-                                     volume=need_volume, deals=deals_buy))
-    if sell_sum_usd:
-        sell_prices.append(MarketInfo(exchange=exch, market=market,
-                                      price=sell_sum_usd,
-                                      volume=need_volume, deals=deals_sell))
+    buy_prices.append(MarketInfo(exchange=exch, market=market,
+                                 volume=need_volume,
+                                 data=bids))
+    sell_prices.append(MarketInfo(exchange=exch, market=market,
+                                  volume=need_volume,
+                                  data=asks))
     return buy_prices, sell_prices

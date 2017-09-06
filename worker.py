@@ -4,7 +4,7 @@ from datetime import datetime
 from tools import get_clients, get_conversion, get_need_volumes
 from structs import MarketInfo, Deal, ArbOpp
 
-from tools import get_logger
+from tools import get_logger, send_notifier
 from collections import defaultdict
 
 log = get_logger('runner_v2.log')
@@ -118,12 +118,17 @@ def process_coins(worker_id, coins_markets, config):
                     else:
                         idx = now_open_arbs.index(arb)
                         # initial values
+                        # log.warning('AHERE %s %s' % (arb.start_date, now_open_arbs[idx].end_date))
                         now_open_arbs[idx].start_date = arb.start_date
+                        # log.warning('BHERE %s %s' % (now_open_arbs[idx].start_date, now_open_arbs[idx].end_date))
                         now_open_arbs[idx].price_buy = arb.price_buy
                         now_open_arbs[idx].price_sell = arb.price_sell
                 open_arbs_all_coins[coin] = now_open_arbs
                 for arb in now_open_arbs:
-                    log.warning('Open arb opp: coin=%s %s' % (coin, arb))
+                    msg = 'Open arb opp: coin=%s %s' % (coin, arb)
+                    if arb.get_roi() > 0.08 and arb.strength > 3:
+                        send_notifier(config['chat_id'], config['token'], msg)
+                    log.warning(msg)
 
     except:
         log.exception('Worker #%s fucked up' % worker_id)
@@ -195,11 +200,7 @@ def process_coin(coin, markets,
         for sell in sells:
             arb_amount = get_arb_amount(sell.data, bid.data)
             buy_price, _ = get_sum_on_volume(sell.data, need_volume, 'BUY')
-            base, coin = get_base_and_coin(sell.market, config['base_currencies'])
-            buy_price *= conversion[base + '_USD']
             sell_price, _ = get_sum_on_volume(bid.data, need_volume, 'SELL')
-            base, coin = get_base_and_coin(bid.market, config['base_currencies'])
-            sell_price *= conversion[base + '_USD']
 
             if buy_price * (1 + config['return']) < sell_price:
                 current_date = datetime.now()
@@ -212,12 +213,12 @@ def process_coin(coin, markets,
                     'end_date': current_date,
                     'price_buy': buy_price,
                     'price_sell': sell_price,
-                    'arb_strength': arb_amount * 1.0 / need_volume
+                    'strength': arb_amount / need_volume
                 }
                 arb = ArbOpp(**arb_data)
-                # log.warning(arb)
-                # log.warning('buy_price=%s KEKB %s sell_price=%s KEKS %s ' % (buy_price, bid.data, sell_price, sell.data))
-
+                log.warning(arb)
+                log.warning('coin=%s arb_amount=%s buy_price=%s KEKB %s' % (coin, arb_amount, buy_price, bid.data))
+                log.warning('sell_price=%s KEKS %s' % (sell_price, sell.data))
                 arbs.append(arb)
                 # log.warning('%s %s' % (bid.deals, ask.deals))
 
@@ -242,6 +243,9 @@ def process_market(client, exch, market, need_volume,
     # sell_spend, deals_sell = get_sum_on_volume(bids, need_volume, 'SELL')
     # buy_sum_usd = buy_spend * conversion[base + '_' + 'USD']
     # sell_sum_usd = sell_spend * conversion[base + '_' + 'USD']
+    conv = conversion[base + '_' + 'USD']
+    bids = [[p * conv, v] for p, v in bids]
+    asks = [[p * conv, v] for p, v in asks]
 
     buy_prices.append(MarketInfo(exchange=exch, market=market,
                                  volume=need_volume,

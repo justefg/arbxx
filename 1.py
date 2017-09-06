@@ -41,7 +41,7 @@ def main():
         'base_currencies': ['USD', 'USDT', 'CNY',  'BTC', 'ETH'],
         'fiat': ['USD', 'CNY'],
         'volume_threshold_usd': 200,
-        'ignored': ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES'],
+        'ignored': ['USDT', 'BTC', 'ETH', 'LTC', 'AEON', 'XDN', 'XMR', 'MGO', 'WAVES', 'XBY', 'PING'],
 
         'return': 0.05,
         'workers_count': 10,

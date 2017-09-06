@@ -7,7 +7,7 @@ from retry import retry
 from retry.api import retry_call
 
 
-@retry(tries=3, delay=1)
+@retry(tries=5, delay=1)
 def send_notifier(chat_id, token, msg, mark=None, keyboard=None):
     while True:
         try:

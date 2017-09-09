@@ -126,7 +126,7 @@ def process_coins(worker_id, coins_markets, config):
                 open_arbs_all_coins[coin] = now_open_arbs
                 for arb in now_open_arbs:
                     msg = 'Open arb opp: coin=%s %s' % (coin, arb)
-                    if arb.get_roi() > 0.08 and arb.strength > 3:
+                    if arb.roi > 0.08 and arb.sell_strength > 3:
                         send_notifier(config['chat_id'], config['token'], msg)
                     log.warning(msg)
 
@@ -135,17 +135,17 @@ def process_coins(worker_id, coins_markets, config):
         process_coins(worker_id, coins_markets, config)
 
 
-def get_arb_amount(data1, data2):
+def get_arb_amount(buy_prices, sell_prices):
     i = 0
     j = 0
     amount = 0
     buy_left = 0
     sell_left = 0
-    while i < len(data1) and j < len(data2):
-        buy_price, amo_buy = data1[i]
+    while i < len(buy_prices) and j < len(sell_prices):
+        buy_price, amo_buy = buy_prices[i]
         if buy_left:
             amo_buy = buy_left
-        sell_price, amo_sell = data2[j]
+        sell_price, amo_sell = sell_prices[j]
         if sell_left:
             amo_sell = sell_left
         if buy_price < sell_price:
@@ -163,13 +163,32 @@ def get_arb_amount(data1, data2):
                 i += 1
         else:
             break
-    return amount
+
+    if sell_left:
+        # We moved buy price
+        sell_amount = amount + sell_left
+        last_buy_price, _ = buy_prices[i - 1]
+        j += 1
+        while j < len(sell_prices) and sell_prices[j][0] > last_buy_price:
+            sell_amount += sell_prices[j][1]
+            j += 1
+        return amount, sell_amount
+    if buy_left:
+        # We moved sell price
+        buy_amount = amount + buy_left
+        last_sell_price, _ = sell_prices[j - 1]
+        i += 1
+        while i < len(buy_prices) and buy_prices[i][0] < last_sell_price:
+            buy_amount += buy_prices[i][1]
+            i += 1
+        return buy_amount, amount
+
+    return amount, amount
 
 
 def process_coin(coin, markets,
                  clients, conversion, need_volumes,
                  config):
-    # coin, markets = coin_markets
     if coin in config['ignored']:
         return []
     print('Processing coin %s' % coin)
@@ -189,16 +208,12 @@ def process_coin(coin, markets,
         buys += buy_pr
         sells += sell_pr
 
-    # best_bid = buys[0].price
-    # best_ask = sells[0].price
-    # if coin == 'MYB':
-    #     log.warning('MYB %s %s' % (best_bid, best_ask))
-    # print(buys, sells)
+
     arbs = []
     need_volume = need_volumes[coin]
     for bid in buys:
         for sell in sells:
-            arb_amount = get_arb_amount(sell.data, bid.data)
+            buy_amount, sell_amount = get_arb_amount(sell.data, bid.data)
             buy_price, _ = get_sum_on_volume(sell.data, need_volume, 'BUY')
             sell_price, _ = get_sum_on_volume(bid.data, need_volume, 'SELL')
 
@@ -213,12 +228,13 @@ def process_coin(coin, markets,
                     'end_date': current_date,
                     'price_buy': buy_price,
                     'price_sell': sell_price,
-                    'strength': arb_amount / need_volume
+                    'buy_strength': buy_amount / need_volume,
+                    'sell_strength': sell_amount / need_volume,
                 }
                 arb = ArbOpp(**arb_data)
-                log.warning(arb)
-                log.warning('coin=%s arb_amount=%s buy_price=%s KEKB %s' % (coin, arb_amount, buy_price, bid.data))
-                log.warning('sell_price=%s KEKS %s' % (sell_price, sell.data))
+                # log.warning(arb)
+                # log.warning('coin=%s arb_amount=%s buy_price=%s KEKB %s' % (coin, arb_amount, buy_price, bid.data))
+                # log.warning('sell_price=%s KEKS %s' % (sell_price, sell.data))
                 arbs.append(arb)
                 # log.warning('%s %s' % (bid.deals, ask.deals))
 

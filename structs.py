@@ -36,7 +36,9 @@ class ArbOpp:
     @property
     def duration(self):
         dt = self.end_date - self.start_date
-        return dt.total_seconds() // 60
+        total_seconds = dt.total_seconds()
+        minutes, seconds = total_seconds // 60, total_seconds % 60
+        return '%02d:%02d' % (minutes, seconds)
 
     @property
     def roi(self):

@@ -217,7 +217,7 @@ def process_coin(coin, markets,
             buy_price, _ = get_sum_on_volume(sell.data, need_volume, 'BUY')
             sell_price, _ = get_sum_on_volume(bid.data, need_volume, 'SELL')
 
-            if buy_price * (1 + config['return']) < sell_price:
+            if buy_price and buy_price * (1 + config['return']) < sell_price:
                 current_date = datetime.now()
                 arb_data = {
                     'e_from': sell.exchange,

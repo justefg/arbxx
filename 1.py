@@ -37,7 +37,7 @@ def main():
 
     config = {
         'exchanges': ['bittrex', 'hitbtc', 'cryptopia', 'yobit', 'liqui',
-                      'bit2c', 'huobi', 'btcchina'],
+                      'bitfinex'],
         'base_currencies': ['USD', 'USDT', 'CNY',  'BTC', 'ETH'],
         'fiat': ['USD', 'CNY'],
         'volume_threshold_usd': 200,

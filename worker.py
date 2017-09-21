@@ -244,6 +244,8 @@ def process_coin(coin, markets,
 def process_market(client, exch, market, need_volume,
                    conversion, base_currencies):
     base, coin = get_base_and_coin(market, base_currencies)
+    if exch == 'bitfinex':
+        market = coin + base
     if not base:
         return [], []
     buy_prices = []
